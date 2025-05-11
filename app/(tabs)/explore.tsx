@@ -109,7 +109,6 @@ export default function AddParkingLot({ navigation }: AddParkingLotProps) {
               setCapacity("");
               setAvailable("");
               setRate("");
-              navigation.goBack();
             },
           },
         ]);
