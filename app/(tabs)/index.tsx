@@ -62,10 +62,14 @@ export default function App() {
   const [hoverRating, setHoverRating] = useState<number>(0);
   const [refresh, setRefresh] = useState<boolean>(false);
   const slideAnim = useRef(new Animated.Value(300)).current;
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isSubmitDisabled, setIsSubmitDisabled] = useState(false);
 
-  const fetchParkingLots = async () => {
+  const fetchParkingLots = async (isBackgroundRefresh = false) => {
     try {
-      setLoading(true);
+      if (!isBackgroundRefresh) {
+        setLoading(true); // Show full-screen loading only for initial fetch
+      }
 
       const serviceStatus = await Location.hasServicesEnabledAsync();
       if (!serviceStatus) {
@@ -88,7 +92,6 @@ export default function App() {
         longitude: loc.coords.longitude,
       });
 
-      // Fetch parking lots from the backend
       const response = await fetch(
         `http://172.20.10.3:4000/api/parking/nearby?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}&radius=5`
       );
@@ -108,9 +111,13 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error fetching parking lots:", error);
-      setErrorMsg("Failed to fetch parking lots");
+      if (!isBackgroundRefresh) {
+        setErrorMsg("Failed to fetch parking lots");
+      }
     } finally {
-      setLoading(false);
+      if (!isBackgroundRefresh) {
+        setLoading(false); // Hide full-screen loading
+      }
     }
   };
 
@@ -173,96 +180,88 @@ export default function App() {
     }
   };
 
-const handleBooking = async (id: string) => {
-  try {
-    // Optimistically update the UI immediately
-    setParkingLots(prevLots => 
-      prevLots.map(lot => 
-        lot._id === Number(id) 
-          ? { ...lot, available: lot.available - 1 } 
-          : lot
-      )
-    );
-    
-    if (selectedParkingLot) {
-      setSelectedParkingLot(prev => ({
-        ...prev!,
-        available: prev!.available - 1
-      }));
-    }
+  const handleBooking = async (id: string) => {
+    try {
+      setIsUpdating(true); // Show subtle loading indicator
 
-    const response = await fetch("http://172.20.10.3:4000/api/parking/book", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ id }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      // Revert the optimistic update if the server request fails
-      setParkingLots(prevLots => 
-        prevLots.map(lot => 
-          lot._id === Number(id) 
-            ? { ...lot, available: lot.available + 1 } 
+      // Optimistically update the UI immediately
+      setParkingLots((prevLots) =>
+        prevLots.map((lot) =>
+          lot._id === Number(id)
+            ? { ...lot, available: lot.available - 1 }
             : lot
         )
       );
-      
+
       if (selectedParkingLot) {
-        setSelectedParkingLot(prev => ({
+        setSelectedParkingLot((prev) => ({
           ...prev!,
-          available: prev!.available + 1
+          available: prev!.available - 1,
         }));
       }
 
-      Alert.alert("Booking Failed", data.message || "Failed to book parking spot.");
-      return;
-    }
-
-    // Final refresh to ensure complete sync with server
-    fetchParkingLots();
-
-    Alert.alert(
-      "Booking Confirmed",
-      `Your parking spot at ${selectedParkingLot?.name} has been booked successfully!`,
-      [
-        {
-          text: "OK",
-          onPress: () => setSelectedParkingLot(null),
+      const response = await fetch("http://172.20.10.3:4000/api/parking/book", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      ]
-    );
-  } catch (error) {
-    console.error("Error booking parking spot:", error);
-    
-    // Revert the optimistic update on error
-    setParkingLots(prevLots => 
-      prevLots.map(lot => 
-        lot._id === Number(id) 
-          ? { ...lot, available: lot.available + 1 } 
-          : lot
-      )
-    );
-    
-    if (selectedParkingLot) {
-      setSelectedParkingLot(prev => ({
-        ...prev!,
-        available: prev!.available + 1
-      }));
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Revert the optimistic update if the server request fails
+        setParkingLots((prevLots) =>
+          prevLots.map((lot) =>
+            lot._id === Number(id)
+              ? { ...lot, available: lot.available + 1 }
+              : lot
+          )
+        );
+
+        if (selectedParkingLot) {
+          setSelectedParkingLot((prev) => ({
+            ...prev!,
+            available: prev!.available + 1,
+          }));
+        }
+
+        Alert.alert(
+          "Booking Failed",
+          data.message || "Failed to book parking spot."
+        );
+        return;
+      }
+
+      // Final refresh to ensure complete sync with server
+      await fetchParkingLots(true); // Background refresh
+
+      Alert.alert(
+        "Booking Confirmed",
+        `Your parking spot at ${selectedParkingLot?.name} has been booked successfully!`,
+        [
+          {
+            text: "OK",
+            onPress: () => setSelectedParkingLot(null),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Error booking parking spot:", error);
+      Alert.alert("Error", "An error occurred while booking the parking spot.");
+    } finally {
+      setIsUpdating(false); // Hide subtle loading indicator
     }
-
-    Alert.alert("Error", "An error occurred while booking the parking spot.");
-  }
-};
-
+  };
 
   const handleRatingSubmit = async () => {
     if (!selectedParkingLot || selectedRating === 0) return;
 
     try {
+      setIsUpdating(true); // Show subtle loading indicator
+      setIsSubmitDisabled(true); // Disable the submit button
+
       const response = await fetch("http://172.20.10.3:4000/api/parking/rate", {
         method: "POST",
         headers: {
@@ -277,17 +276,11 @@ const handleBooking = async (id: string) => {
       const data = await response.json();
 
       if (response.ok) {
-
-        const refreshResponse = await fetch(
-          `http://172.20.10.3:4000/api/parking/nearby?lat=${location?.latitude}&lng=${location?.longitude}&radius=5`
-        );
-        const refreshedData = await refreshResponse.json();
-        setParkingLots(refreshedData);
+        await fetchParkingLots(true); // Background refresh
         Alert.alert(
           "Thank You!",
           "Your rating has been submitted successfully."
         );
-        setRefresh((prev) => !prev);
         setRatingModalVisible(false);
         setSelectedRating(0);
         setHoverRating(0);
@@ -297,6 +290,9 @@ const handleBooking = async (id: string) => {
     } catch (error) {
       console.error("Error submitting rating:", error);
       Alert.alert("Error", "An error occurred while submitting the rating.");
+    } finally {
+      setIsUpdating(false); // Hide subtle loading indicator
+      setIsSubmitDisabled(false); // Re-enable the button after the process
     }
   };
 
@@ -332,6 +328,42 @@ const handleBooking = async (id: string) => {
   const filteredParkingLots = parkingLots.filter((lot) =>
     lot.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleSearch = () => {
+    if (searchQuery.trim() === "") {
+      // If the search query is empty, reposition to the user's current location
+      if (location && mapRef.current) {
+        mapRef.current.animateToRegion(
+          {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          },
+          1000
+        );
+      }
+      return;
+    }
+
+    // Find the first parking lot that matches the search query
+    const searchedLot = parkingLots.find((lot) =>
+      lot.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    if (searchedLot && mapRef.current) {
+      // Reposition the map to the searched parking lot
+      mapRef.current.animateToRegion(
+        {
+          latitude: searchedLot.latitude,
+          longitude: searchedLot.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        1000
+      );
+    }
+  };
 
   if (loading) {
     return (
@@ -373,7 +405,11 @@ const handleBooking = async (id: string) => {
   }
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <TouchableWithoutFeedback
+      onPress={() => {
+        Keyboard.dismiss();
+      }}
+    >
       <View style={styles.container}>
         {/* Search Bar */}
         <View style={styles.searchContainer}>
@@ -382,7 +418,10 @@ const handleBooking = async (id: string) => {
             placeholder="Search parking lots..."
             placeholderTextColor="#888"
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(text) => {
+              setSearchQuery(text);
+              handleSearch();
+            }}
           />
           <TouchableOpacity style={styles.searchIcon}>
             <MaterialIcons name="search" size={24} color="#4a90e2" />
@@ -419,8 +458,8 @@ const handleBooking = async (id: string) => {
                 longitude: lot.longitude,
               }}
               onPress={() => {
-                markerClicked = true; 
-                setSelectedParkingLot(lot); 
+                markerClicked = true;
+                setSelectedParkingLot(lot);
               }}
             >
               <View style={styles.markerContainer}>
@@ -431,7 +470,11 @@ const handleBooking = async (id: string) => {
             </Marker>
           ))}
         </MapView>
-
+        {isUpdating && (
+          <View style={styles.updatingIndicator}>
+            <ActivityIndicator size="large" color="#4a90e2" />
+          </View>
+        )}
         {/* Parking Lot Details Panel */}
         {selectedParkingLot && (
           <Animated.View
@@ -627,12 +670,15 @@ const handleBooking = async (id: string) => {
                 <TouchableOpacity
                   style={[
                     styles.modalSubmitButton,
-                    selectedRating === 0 && styles.disabledButton,
+                    (selectedRating === 0 || isSubmitDisabled) &&
+                      styles.disabledButton,
                   ]}
                   onPress={handleRatingSubmit}
-                  disabled={selectedRating === 0}
+                  disabled={selectedRating === 0 || isSubmitDisabled} // Disable if no rating or already clicked
                 >
-                  <Text style={styles.modalSubmitButtonText}>Submit</Text>
+                  <Text style={styles.modalSubmitButtonText}>
+                    {isSubmitDisabled ? "Submitting..." : "Submit"}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -675,6 +721,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 30,
   },
+  updatingIndicator: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.3)", // Semi-transparent background
+    zIndex: 2000,
+  },
   retryButton: {
     marginTop: 30,
     backgroundColor: "white",
@@ -702,7 +759,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 5,
     elevation: 5,
-    width:'80%'
+    width: "80%",
   },
   searchBar: {
     backgroundColor: "white",
@@ -877,16 +934,22 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.6)", // Darker semi-transparent background
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 1000,
   },
   modalContainer: {
-    backgroundColor: "white",
+    backgroundColor: "#f7f7f7", // Light gray background
     borderRadius: 20,
     padding: 25,
     width: "80%",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 5,
   },
   modalTitle: {
     fontSize: 20,
@@ -899,6 +962,16 @@ const styles = StyleSheet.create({
     color: "#666",
     marginBottom: 20,
     textAlign: "center",
+  },
+  modalSubmitButton: {
+    backgroundColor: "#4a90e2",
+    paddingVertical: 12,
+    paddingHorizontal: 25,
+    borderRadius: 25,
+  },
+  modalSubmitButtonText: {
+    color: "white",
+    fontWeight: "600",
   },
   starContainer: {
     flexDirection: "row",
@@ -924,14 +997,5 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "600",
   },
-  modalSubmitButton: {
-    backgroundColor: "#4a90e2",
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 25,
-  },
-  modalSubmitButtonText: {
-    color: "white",
-    fontWeight: "600",
-  },
+
 });
