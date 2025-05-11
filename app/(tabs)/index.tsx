@@ -173,72 +173,36 @@ export default function App() {
     }
   };
 
-  const handleBooking = async (id: string) => {
-    try {
-      // Optimistically update the UI immediately
-      setParkingLots(prevLots => 
-        prevLots.map(lot => 
-          lot._id === Number(id) 
-            ? { ...lot, available: lot.available - 1 } 
-            : lot
-        )
-      );
-      
-      if (selectedParkingLot) {
-        setSelectedParkingLot(prev => ({
-          ...prev!,
-          available: prev!.available - 1
-        }));
-      }
-  
-      const response = await fetch("http://172.20.10.3:4000/api/parking/book", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ id }),
-      });
-  
-      const data = await response.json();
-  
-      if (!response.ok) {
-        // Revert the optimistic update if the server request fails
-        setParkingLots(prevLots => 
-          prevLots.map(lot => 
-            lot._id === Number(id) 
-              ? { ...lot, available: lot.available + 1 } 
-              : lot
-          )
-        );
-        
-        if (selectedParkingLot) {
-          setSelectedParkingLot(prev => ({
-            ...prev!,
-            available: prev!.available + 1
-          }));
-        }
-  
-        Alert.alert("Booking Failed", data.message || "Failed to book parking spot.");
-        return;
-      }
-  
-      // Final refresh to ensure complete sync with server
-      fetchParkingLots();
-  
-      Alert.alert(
-        "Booking Confirmed",
-        `Your parking spot at ${selectedParkingLot?.name} has been booked successfully!`,
-        [
-          {
-            text: "OK",
-            onPress: () => setSelectedParkingLot(null),
-          },
-        ]
-      );
-    } catch (error) {
-      console.error("Error booking parking spot:", error);
-      
-      // Revert the optimistic update on error
+const handleBooking = async (id: string) => {
+  try {
+    // Optimistically update the UI immediately
+    setParkingLots(prevLots => 
+      prevLots.map(lot => 
+        lot._id === Number(id) 
+          ? { ...lot, available: lot.available - 1 } 
+          : lot
+      )
+    );
+    
+    if (selectedParkingLot) {
+      setSelectedParkingLot(prev => ({
+        ...prev!,
+        available: prev!.available - 1
+      }));
+    }
+
+    const response = await fetch("http://172.20.10.3:4000/api/parking/book", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Revert the optimistic update if the server request fails
       setParkingLots(prevLots => 
         prevLots.map(lot => 
           lot._id === Number(id) 
@@ -253,10 +217,46 @@ export default function App() {
           available: prev!.available + 1
         }));
       }
-  
-      Alert.alert("Error", "An error occurred while booking the parking spot.");
+
+      Alert.alert("Booking Failed", data.message || "Failed to book parking spot.");
+      return;
     }
-  };
+
+    // Final refresh to ensure complete sync with server
+    fetchParkingLots();
+
+    Alert.alert(
+      "Booking Confirmed",
+      `Your parking spot at ${selectedParkingLot?.name} has been booked successfully!`,
+      [
+        {
+          text: "OK",
+          onPress: () => setSelectedParkingLot(null),
+        },
+      ]
+    );
+  } catch (error) {
+    console.error("Error booking parking spot:", error);
+    
+    // Revert the optimistic update on error
+    setParkingLots(prevLots => 
+      prevLots.map(lot => 
+        lot._id === Number(id) 
+          ? { ...lot, available: lot.available + 1 } 
+          : lot
+      )
+    );
+    
+    if (selectedParkingLot) {
+      setSelectedParkingLot(prev => ({
+        ...prev!,
+        available: prev!.available + 1
+      }));
+    }
+
+    Alert.alert("Error", "An error occurred while booking the parking spot.");
+  }
+};
 
 
   const handleRatingSubmit = async () => {
