@@ -7,6 +7,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { FontAwesome } from '@expo/vector-icons'; // Import FontAwesome for the plus-circle icon
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -36,8 +37,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Contribute', // Changed title to Contribute
+          tabBarIcon: ({ color }) => <FontAwesome name="plus-circle" size={28} color={color} />, // Changed icon to plus-circle
         }}
       />
     </Tabs>
